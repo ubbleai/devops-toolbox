@@ -14,9 +14,9 @@ aws s3 cp --recursive $KOPS_STATE_STORE/$CLUSTER/pki/issued/ca /tmp/ca
 
 ca=/tmp/ca/$(ls /tmp/ca | grep -v keyset)
 
-vault auth $TLS_SKIP_VERIFY list | grep -q "^kubernetes/$CLUSTER"
+vault auth list $TLS_SKIP_VERIFY | grep -q "^kubernetes/$CLUSTER"
 if [ $? -ne 0 ]; then
-  vault auth $TLS_SKIP_VERIFY enable -path=kubernetes/$CLUSTER kubernetes
+  vault auth enable $TLS_SKIP_VERIFY -path=kubernetes/$CLUSTER kubernetes
 fi
 
 kubectl get sa | grep -q "^$SERVICE_ACCOUNT"
