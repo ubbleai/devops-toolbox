@@ -1,6 +1,8 @@
-#!/bin/bash
+#!/bin/zsh
 
 set -e
+
+zparseopts tls-skip-verify=TLS_SKIP_VERIFY
 
 CLUSTER=$(kubectl config current-context)
 SERVICE_ACCOUNT="vault-auth"
@@ -12,9 +14,9 @@ aws s3 cp --recursive $KOPS_STATE_STORE/$CLUSTER/pki/issued/ca /tmp/ca
 
 ca=/tmp/ca/$(ls /tmp/ca | grep -v keyset)
 
-vault auth list | grep -q "^kubernetes/$CLUSTER"
+vault auth $TLS_SKIP_VERIFY list | grep -q "^kubernetes/$CLUSTER"
 if [ $? -ne 0 ]; then
-  vault auth enable -path=kubernetes/$CLUSTER kubernetes
+  vault auth $TLS_SKIP_VERIFY enable -path=kubernetes/$CLUSTER kubernetes
 fi
 
 kubectl get sa | grep -q "^$SERVICE_ACCOUNT"
@@ -45,7 +47,7 @@ TR_ACCOUNT_TOKEN=$(kubectl -n default get secret ${SECRET_NAME} -o jsonpath='{.d
 
 KUBERNETES_HOST=$(kubectl config view -o json | jq -r ".clusters[] | select(.name==\"$(kubectl config current-context)\" ) | .cluster.server")
 
-vault write auth/kubernetes/$CLUSTER/config \
+vault write $TLS_SKIP_VERIFY auth/kubernetes/$CLUSTER/config \
   kubernetes_host=$KUBERNETES_HOST \
   token_reviewer_jwt=$TR_ACCOUNT_TOKEN \
   kubernetes_ca_cert=@$ca
