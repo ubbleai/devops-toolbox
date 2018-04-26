@@ -1,0 +1,53 @@
+#!/bin/bash
+
+set -e
+
+CLUSTER=$(kubectl config current-context)
+SERVICE_ACCOUNT="vault-auth"
+
+rm -rf /tmp/ca || true
+mkdir -p /tmp/ca
+
+aws s3 cp --recursive $KOPS_STATE_STORE/$CLUSTER/pki/issued/ca /tmp/ca
+
+ca=/tmp/ca/$(ls /tmp/ca | grep -v keyset)
+
+vault auth list | grep -q "^kubernetes/$CLUSTER"
+if [ $? -ne 0 ]; then
+  vault auth enable -path=kubernetes/$CLUSTER kubernetes
+fi
+
+kubectl get sa | grep -q "^$SERVICE_ACCOUNT"
+if [ $? -ne 0 ]; then
+  kubectl -n default create serviceaccount $SERVICE_ACCOUNT
+fi
+
+# Binding a service account with the ClusterRole system:auth-delegator
+cat << EOF | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1beta1
+kind: ClusterRoleBinding
+metadata:
+  name: role-tokenreview-binding
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+- kind: ServiceAccount
+  name: $SERVICE_ACCOUNT
+  namespace: default
+EOF
+
+# Generating token for service account $SERVICE_ACCOUNT
+SECRET_NAME=$(kubectl -n default get serviceaccount $SERVICE_ACCOUNT -o jsonpath='{.secrets[0].name}')
+TR_ACCOUNT_TOKEN=$(kubectl -n default get secret ${SECRET_NAME} -o jsonpath='{.data.token}' | base64 --decode)
+
+KUBERNETES_HOST=$(kubectl config view -o json | jq -r ".clusters[] | select(.name==\"$(kubectl config current-context)\" ) | .cluster.server")
+
+vault write auth/kubernetes/$CLUSTER/config \
+  kubernetes_host=$KUBERNETES_HOST \
+  token_reviewer_jwt=$TR_ACCOUNT_TOKEN \
+  kubernetes_ca_cert=@$ca
+
+rm -rf /tmp/ca || true
