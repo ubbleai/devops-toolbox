@@ -3,6 +3,26 @@
 Useful scripts to manage and automate k8s clusters, with vault secret cluster for storing secrets,
 and an aws backend.
 
+Generally the following configuration is required with rights depending on the action:
+
+* `VAULT_TOKEN` and `VAULT_ADDR` for vault
+* `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` for aws (or regular aws cli credentials at
+`~/.aws`)
+* A kubectl context
+
+## create_cluster
+
+Create a k8s cluster using kops, and possibly create a corresponding vault k8s backend.
+
+Needs:
+
+* kops group for aws
+* vault-k8s-config rights
+
+## delete_cluster
+
+Use kops to delete an existing cluster. Needs kops group and vault auth disabling.
+
 ## vault-k8s-config
 
 Configure a vault k8s auth backend. Can be called just after a k8s cluster has been created.

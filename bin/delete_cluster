@@ -1,0 +1,23 @@
+#!/bin/zsh
+
+zparseopts -cluster-name:=CLUSTER_NAME -help=HELP
+
+function print_help() {
+  print "Usage: "
+  print "delete_cluster --cluster-name example"
+}
+
+if [[ "$HELP" != "" ]]; then
+  print_help
+  exit 0
+fi
+
+if [[ "$CLUSTER_NAME" == "" ]]; then
+  >&2 print -P "%F{red}--cluster-name argument must be given.%f"
+  exit 1
+fi
+
+kops delete cluster $CLUSTER_NAME --yes
+
+# Disable vault k8s backend
+vault auth disable kubernetes/$CLUSTER_NAME
