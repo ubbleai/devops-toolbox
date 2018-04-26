@@ -1,0 +1,67 @@
+#!/bin/zsh
+
+function redirect_subdomain() {
+  subdomain=$1
+  target=$2
+
+  jq_search=".ResourceRecordSets[] | "
+  jq_search+="select("
+  jq_search+="(.Name==\"$subdomain\") and (.Type==\"CNAME\"))"
+
+  previous_record=$(aws route53 \
+    list-resource-record-sets \
+    --hosted-zone-id $HOSTED_ZONE_ID |
+    jq -r "$jq_search")
+
+  change_batch=$(cat <<-EOF
+{
+  "Comment": "Adding a CNAME record through command line script",
+  "Changes": [
+    {
+    "Action": "UPSERT",
+    "ResourceRecordSet": {
+        "Name": "$subdomain",
+        "Type": "CNAME",
+        "TTL": 3600,
+        "ResourceRecords": [
+            {
+                "Value": "$target"
+            }
+        ]
+      }
+    }
+  ]
+}
+EOF
+)
+  output=$(aws route53 change-resource-record-sets \
+    --hosted-zone-id $HOSTED_ZONE_ID \
+    --change-batch "$change_batch" 2>&1)
+  if [ $? -ne 0 ]; then
+    echo "Error while changing resource record sets:" >&2
+    echo $output >&2
+  fi
+  echo $previous_record
+}
+
+function print_help() {
+  print "Usage:"
+  print "redirect_subdomain subdomain.project.com. target.name.com."
+  print
+  print "Print the previous record if it exists, so it can be saved "
+  print "and restored later."
+}
+
+zparseopts -E -help=HELP
+
+if [[ "$HELP" == "--help" ]]; then
+  print_help
+  exit 0
+fi
+
+if [ $# -ne 2 ]; then
+  echo "Wrong number of arguments."
+  exit 1
+fi
+
+redirect_subdomain $1 $2
