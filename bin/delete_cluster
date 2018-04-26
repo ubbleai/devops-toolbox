@@ -17,7 +17,7 @@ if [[ "$CLUSTER_NAME" == "" ]]; then
   exit 1
 fi
 
-kops delete cluster $CLUSTER_NAME --yes
+kops delete cluster ${CLUSTER_NAME[2]} --yes
 
 # Disable vault k8s backend
-vault auth disable kubernetes/$CLUSTER_NAME
+vault auth disable kubernetes/${CLUSTER_NAME[2]}
