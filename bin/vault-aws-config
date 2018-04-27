@@ -1,0 +1,84 @@
+#!/bin/zsh
+
+zparseopts tls-skip-verify=TLS_SKIP_VERIFY path=HAS_PATH
+
+CLUSTER=$(kubectl config current-context)
+
+if [[ $"HAS_PATH" != "" ]]; then
+  VAULT_PATH=aws/$CLUSTER
+  PATH_PARAM="-path=$VAULT_PATH"
+else
+  VAULT_PATH=aws
+  PATH_PARAM="-path=aws"
+fi
+
+vault secrets list $TLS_SKIP_VERIFY | grep -q "^$VAULT_PATH"
+if [ $? -eq 0 ]; then
+  echo "Aws auth backend already exists."
+  exit 0
+fi
+
+set -e
+
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --output text --query 'Account')
+
+VAULT_USER="vault"
+
+vault secrets enable $TLS_SKIP_VERIFY aws
+
+aws iam create-user --user "$VAULT_USER"
+
+cat <<-EOF > vault-aws-policy.json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iam:AttachUserPolicy",
+        "iam:CreateAccessKey",
+        "iam:CreateUser",
+        "iam:DeleteAccessKey",
+        "iam:DeleteUser",
+        "iam:DeleteUserPolicy",
+        "iam:DetachUserPolicy",
+        "iam:ListAccessKeys",
+        "iam:ListAttachedUserPolicies",
+        "iam:ListGroupsForUser",
+        "iam:ListUserPolicies",
+        "iam:PutUserPolicy",
+        "iam:RemoveUserFromGroup"
+      ],
+      "Resource": [
+        "arn:aws:iam::${AWS_ACCOUNT_ID}:user/vault-*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetFederationToken",
+        "route53:ChangeResourceRecordSets"
+      ],
+      "Resource": [
+        "arn:aws:iam:::hostedzone/Z1E5XKKNEJ0F2O"
+      ]
+    }
+  ]
+}
+EOF
+
+ARN=$(aws iam create-policy --policy-name vault-user-policy \
+  --policy-document file://vault-aws-policy.json |
+  jq -r '.Policy.Arn')
+
+aws iam attach-user-policy --user-name $VAULT_USER --policy-arn $ARN
+
+ACCESS_KEY=$(aws iam create-access-key --user-name vault)
+
+AWS_ACCESS_KEY_ID=$(echo $ACCESS_KEY | jq -r '.AccessKey.AccessKeyId')
+AWS_SECRET_ACCESS_KEY=$(echo $ACCESS_KEY | jq -r '.AccessKey.SecretAccessKey')
+
+vault write $TLS_SKIP_VERIFY aws/config/root \
+  access_key=$AWS_ACCESS_KEY_ID \
+  secret_key=$AWS_SECRET_ACCESS_KEY \
+  region=$AWS_DEFAULT_REGION
