@@ -36,6 +36,15 @@ The requirements are as follows :
 * Vault access (through `$VAULT_TOKEN` and `$VAULT_ADDR`) and the following rights:
   * write access to `auth/kubernetes/$CLUSTER_NAME/config`
 
+## vault-aws-config
+
+
+Configure a vault aws secrets backend (for generating aws credentials).
+
+* Vault access with write on secrets/
+* Aws
+  * Create a user, policy, attach policy to user
+
 ## redirect_subdomain
 
 Add a dns CNAME dns record for given subdomain and target, and print the previous record if any

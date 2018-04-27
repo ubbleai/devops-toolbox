@@ -4,7 +4,7 @@ zparseopts tls-skip-verify=TLS_SKIP_VERIFY path=HAS_PATH
 
 CLUSTER=$(kubectl config current-context)
 
-if [[ $"HAS_PATH" != "" ]]; then
+if [[ "$HAS_PATH" != "" ]]; then
   VAULT_PATH=aws/$CLUSTER
   PATH_PARAM="-path=$VAULT_PATH"
 else
@@ -22,13 +22,13 @@ set -e
 
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --output text --query 'Account')
 
-VAULT_USER="vault"
+VAULT_USER="vault-$CLUSTER"
 
-vault secrets enable $TLS_SKIP_VERIFY aws
+vault secrets enable $TLS_SKIP_VERIFY $PATH_PARAM aws
 
 aws iam create-user --user "$VAULT_USER"
 
-cat <<-EOF > vault-aws-policy.json
+cat <<-EOF > /tmp/vault-aws-policy.json
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -50,35 +50,38 @@ cat <<-EOF > vault-aws-policy.json
         "iam:RemoveUserFromGroup"
       ],
       "Resource": [
-        "arn:aws:iam::${AWS_ACCOUNT_ID}:user/vault-*"
+        "arn:aws:iam:::user/vault-*"
       ]
     },
     {
       "Effect": "Allow",
       "Action": [
-        "sts:GetFederationToken",
-        "route53:ChangeResourceRecordSets"
+        "sts:GetFederationToken"
       ],
       "Resource": [
-        "arn:aws:iam:::hostedzone/Z1E5XKKNEJ0F2O"
+        "*"
       ]
     }
   ]
 }
 EOF
 
-ARN=$(aws iam create-policy --policy-name vault-user-policy \
-  --policy-document file://vault-aws-policy.json |
-  jq -r '.Policy.Arn')
+ARN=$(aws iam list-policies |
+  jq -r '.Policies[] | select(.PolicyName=="vault-user-policy") | .Arn')
+if [[ "$ARN" == "" ]]; then
+  ARN=$(aws iam create-policy --policy-name vault-user-policy \
+    --policy-document file:///tmp/vault-aws-policy.json |
+    jq -r '.Policy.Arn')
+fi
 
 aws iam attach-user-policy --user-name $VAULT_USER --policy-arn $ARN
 
-ACCESS_KEY=$(aws iam create-access-key --user-name vault)
+ACCESS_KEY=$(aws iam create-access-key --user-name $VAULT_USER)
 
 AWS_ACCESS_KEY_ID=$(echo $ACCESS_KEY | jq -r '.AccessKey.AccessKeyId')
 AWS_SECRET_ACCESS_KEY=$(echo $ACCESS_KEY | jq -r '.AccessKey.SecretAccessKey')
 
-vault write $TLS_SKIP_VERIFY aws/config/root \
+vault write $TLS_SKIP_VERIFY $VAULT_PATH/config/root \
   access_key=$AWS_ACCESS_KEY_ID \
   secret_key=$AWS_SECRET_ACCESS_KEY \
   region=$AWS_DEFAULT_REGION
