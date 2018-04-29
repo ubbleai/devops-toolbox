@@ -4,7 +4,7 @@ zparseopts -cluster-name:=CLUSTER_NAME -help=HELP
 
 function print_help() {
   print "Usage: "
-  print "delete_cluster --cluster-name example"
+  print "destroy_cluster --cluster-name example"
 }
 
 if [[ "$HELP" != "" ]]; then

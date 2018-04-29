@@ -19,7 +19,7 @@ Needs:
 * kops group for aws
 * vault-k8s-config rights
 
-## delete_cluster
+## destroy_cluster
 
 Use kops to delete an existing cluster. Needs kops group and vault auth disabling.
 
