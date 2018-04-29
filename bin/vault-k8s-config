@@ -14,9 +14,13 @@ aws s3 cp --recursive $KOPS_STATE_STORE/$CLUSTER/pki/issued/ca /tmp/ca
 
 ca=/tmp/ca/$(ls /tmp/ca | grep -v keyset)
 
-vault auth enable $TLS_SKIP_VERIFY -path=kubernetes/$CLUSTER kubernetes
+if ! vault auth list $TLS_SKIP_VERIFY | grep -q "^kubernetes/$CLUSTER/"; then
+  vault auth enable $TLS_SKIP_VERIFY -path=kubernetes/$CLUSTER kubernetes
+fi
 
-kubectl -n default create serviceaccount $SERVICE_ACCOUNT
+if ! kubectl get sa | grep -q "^$SERVICE_ACCOUNT "; then
+  kubectl -n default create serviceaccount $SERVICE_ACCOUNT
+fi
 
 # Binding a service account with the ClusterRole system:auth-delegator
 cat << EOF | kubectl apply -f -

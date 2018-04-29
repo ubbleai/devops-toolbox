@@ -18,7 +18,10 @@ AWS_ACCOUNT_ID=$(aws sts get-caller-identity --output text --query 'Account')
 
 VAULT_USER="vault-$CLUSTER"
 
-vault secrets enable $TLS_SKIP_VERIFY $PATH_PARAM aws
+if ! vault secrets list | grep -q "^$VAULT_PATH/ "
+then
+  vault secrets enable $TLS_SKIP_VERIFY $PATH_PARAM aws
+fi
 
 aws iam list-users | grep -q "\"$VAULT_USER\"" || \
   aws iam create-user --user "$VAULT_USER"
@@ -71,6 +74,9 @@ fi
 
 aws iam attach-user-policy --user-name $VAULT_USER --policy-arn $ARN
 
+aws iam list-access-keys --user-name $VAULT_USER |
+  jq -r '.AccessKeyMetadata[].AccessKeyId' |
+  xargs -I {} aws iam delete-access-key --access-key-id {} --user-name $VAULT_USER
 ACCESS_KEY=$(aws iam create-access-key --user-name $VAULT_USER)
 
 AWS_ACCESS_KEY_ID=$(echo $ACCESS_KEY | jq -r '.AccessKey.AccessKeyId')
