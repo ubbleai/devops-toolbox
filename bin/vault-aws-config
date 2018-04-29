@@ -1,5 +1,7 @@
 #!/bin/zsh
 
+set -e
+
 zparseopts tls-skip-verify=TLS_SKIP_VERIFY path=HAS_PATH
 
 CLUSTER=$(kubectl config current-context)
@@ -12,21 +14,14 @@ else
   PATH_PARAM="-path=aws"
 fi
 
-vault secrets list $TLS_SKIP_VERIFY | grep -q "^$VAULT_PATH"
-if [ $? -eq 0 ]; then
-  echo "Aws auth backend already exists."
-  exit 0
-fi
-
-set -e
-
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --output text --query 'Account')
 
 VAULT_USER="vault-$CLUSTER"
 
 vault secrets enable $TLS_SKIP_VERIFY $PATH_PARAM aws
 
-aws iam create-user --user "$VAULT_USER"
+aws iam list-users | grep -q "\"$VAULT_USER\"" || \
+  aws iam create-user --user "$VAULT_USER"
 
 cat <<-EOF > /tmp/vault-aws-policy.json
 {
