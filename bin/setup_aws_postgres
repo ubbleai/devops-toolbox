@@ -1,0 +1,57 @@
+#!/bin/zsh
+
+set -e
+
+zparseopts -db-name=DB_NAME
+
+DB_IDENTIFIER="$ENV-$DB_NAME"
+VAULT_PATH="database/$ENV"
+INSTANCE_CLASS=${INSTANCE_CLASS:=db.m4.large}
+MASTER_USERNAME=${MASTER_USERNAME:=root}
+DEFAULT_PASSWORD=$(cat /dev/urandom | base64 | tr -dc '0-9a-zA-Z' | head -c30) # mac / zsh
+MASTER_USER_PASSWORD=${MASTER_USER_PASSWORD:=$DEFAULT_PASSWORD}
+ALLOCATED_STORAGE=${ALLOCATED_STORAGE:=20} # 20GB
+
+if aws rds describe-db-instances |
+  jq -e ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\")"; then
+  # Since we can't retrieve the master password, if the db already exists we
+  # should exit.
+  exit 0
+fi
+
+# Create postgres instance in the same vpc that of vault if it exists
+CLUSTER_VPC=$(aws ec2 describe-security-groups |
+  jq -r ".SecurityGroups[] | select(.GroupName==\"masters.$CLUSTER_NAME\") | .VpcId")
+VPC=""
+if [[ "$CLUSTER_VPC" != "" ]]; then
+  VPC=(--vpc $CLUSTER_VPC)
+fi
+
+output=$(aws rds create-db-instance \
+  $VPC \
+  --db-instance-identifier $DB_IDENTIFIER \
+  --db-instance-class $INSTANCE_CLASS \
+  --engine postgres \
+  --master-username $MASTER_USERNAME \
+  --master-user-password $MASTER_USER_PASSWORD \
+  --allocated-storage $ALLOCATED_STORAGE)
+
+if ! vault secrets list | grep -q "^$VAULT_PATH/"; then
+  vault secrets enable -path $VAULT_PATH database
+fi
+
+until aws rds describe-db-instances |
+  jq -e ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\") | .Endpoint.Address"; do
+  sleep 10
+done
+
+instance=$(aws rds describe-db-instances)
+HOST=$(echo $instance | jq -r ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\") | .Endpoint.Address")
+PORT=$(echo $instance | jq -r ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\") | .Endpoint.Port")
+
+vault write $VAULT_PATH/config/$DB_NAME \
+    plugin_name=postgresql-database-plugin \
+    allowed_roles="readonly-$DB_IDENTIFIER,fullaccess-$DB_IDENTIFIER" \
+    connection_url="postgresql://{{username}}:{{password}}@$HOST:$PORT/$DB_NAME" \
+    username="$MASTER_USERNAME" \
+    password="$MASTER_USER_PASSWORD"
