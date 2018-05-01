@@ -75,7 +75,7 @@ kops create cluster \
   --master-size $MASTER_SIZE \
   --node-size $NODE_SIZE \
   --name ${CLUSTER_NAME[2]} \
-  --network-cidr $cidr
+  --network-cidr $cidr \
   --yes
 
 if [[ "$WAIT" != "--wait" && "$VAULT" != "--vault" ]]; then
