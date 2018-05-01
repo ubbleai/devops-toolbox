@@ -58,6 +58,16 @@ print -P  " > master size: %F{yellow}$MASTER_SIZE%F{$color}"
 print -P  " > node size: %F{yellow}$NODE_SIZE%F{$color}"
 print -P  "%f"
 
+cidr=$(aws ec2 describe-vpcs | jq -r '.Vpcs[].CidrBlock' | python -c "import sys
+cidrs = []
+for line in sys.stdin:
+  cidrs.append(line.rstrip())
+for i in range(0,256):
+  cidr = \"172.\" + str(i) + \".0.0/16\"
+  if cidr not in cidrs:
+    print cidr
+    break")
+
 kops create cluster \
   --zones $ZONES \
   --cloud aws \
@@ -65,6 +75,7 @@ kops create cluster \
   --master-size $MASTER_SIZE \
   --node-size $NODE_SIZE \
   --name ${CLUSTER_NAME[2]} \
+  --network-cidr $cidr
   --yes
 
 if [[ "$WAIT" != "--wait" && "$VAULT" != "--vault" ]]; then
