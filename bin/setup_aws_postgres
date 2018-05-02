@@ -2,15 +2,57 @@
 
 set -e
 
-zparseopts -db-name=DB_NAME
+SCRIPTPATH="$( cd "$(dirname "$0")" ; pwd -P )"
 
-DB_IDENTIFIER="$ENV-$DB_NAME"
-VAULT_PATH="database/$ENV"
+color=blue
+
+source $SCRIPTPATH/../lib
+
+zparseopts -db-name:=DB_NAME
+
+function create_subnet_in_vpc_in_az() {
+  vpc=$1
+  az=$2
+  cidr=$(aws ec2 describe-subnets |
+    jq -r ".Subnets[] | select(.VpcId==\"$vpc\") | .CidrBlock" |
+    python -c "import sys
+cidrs=[]
+for line in sys.stdin:
+  cidrs.append(line.rstrip())
+base = '.'.join(cidrs[0].split('.')[0:2])
+for i in range(0, 32):
+  cidr = base + '.' + str(i) + '.0/24'
+  if cidr not in cidrs:
+    print cidr
+    break")
+  aws ec2 create-subnet \
+    --availability-zone $az \
+    --cidr-block $cidr \
+    --vpc-id $vpc |
+    jq -r '.Subnet.SubnetId'
+}
+
+DB_IDENTIFIER="$ENV-${DB_NAME[2]}"
+VAULT_PATH="database/$CLUSTER_NAME"
 INSTANCE_CLASS=${INSTANCE_CLASS:=db.m4.large}
 MASTER_USERNAME=${MASTER_USERNAME:=root}
 DEFAULT_PASSWORD=$(cat /dev/urandom | base64 | tr -dc '0-9a-zA-Z' | head -c30) # mac / zsh
 MASTER_USER_PASSWORD=${MASTER_USER_PASSWORD:=$DEFAULT_PASSWORD}
 ALLOCATED_STORAGE=${ALLOCATED_STORAGE:=20} # 20GB
+SUBNET_GROUP_NAME="subnet-group-$DB_IDENTIFIER"
+SECURITY_GROUP_NAME="security-group-$DB_IDENTIFIER"
+
+function tag_ec2_resource() {
+  aws ec2 create-tags --resources $@ \
+    --tags Key=KubernetesCluster,Value=$CLUSTER_NAME \
+    Key=DbIdentifier,Value=$DB_IDENTIFIER
+}
+
+function tag_rds_resource() {
+  aws rds add-tags-to-resource --resource-name $1 \
+    --tags Key=KubernetesCluster,Value=$CLUSTER_NAME \
+    Key=DbIdentifier,Value=$DB_IDENTIFIER
+}
 
 if aws rds describe-db-instances |
   jq -e ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\")"; then
@@ -19,39 +61,127 @@ if aws rds describe-db-instances |
   exit 0
 fi
 
-# Create postgres instance in the same vpc that of vault if it exists
-CLUSTER_VPC=$(aws ec2 describe-security-groups |
-  jq -r ".SecurityGroups[] | select(.GroupName==\"masters.$CLUSTER_NAME\") | .VpcId")
+CLUSTER_VPC=$(aws ec2 describe-vpcs \
+  --filters "Name=tag:Name,Values=$CLUSTER_NAME" | jq -r ".Vpcs[].VpcId")
 VPC=""
 if [[ "$CLUSTER_VPC" != "" ]]; then
   VPC=(--vpc $CLUSTER_VPC)
 fi
 
+if ! aws rds describe-db-subnet-groups |
+  jq -e ".DBSubnetGroups[] | select(.DBSubnetGroupName==\"$SUBNET_GROUP_NAME\")" >/dev/null
+then
+  print -P "Creating 3 subnets in different availability zones for the db instance... "
+  subnet1=$(create_subnet_in_vpc_in_az $CLUSTER_VPC eu-west-1a)
+  print -P "  %F{grey}$subnet1%F{$color}... %F{green}done.%F{$color}"
+
+  subnet2=$(create_subnet_in_vpc_in_az $CLUSTER_VPC eu-west-1b)
+  print -P "  %F{grey}$subnet2%F{$color}... %F{green}done.%F{$color}"
+
+  subnet3=$(create_subnet_in_vpc_in_az $CLUSTER_VPC eu-west-1c)
+  print -P "  %F{grey}$subnet3%F{$color}... %F{green}done.%F{$color}"
+
+  tag_ec2_resource $subnet1 $subnet2 $subnet3
+
+  print -nP "Creating db subnet group using these subnets... "
+  SUBNET_GROUP_ARN=$(aws rds create-db-subnet-group \
+    --db-subnet-group-name $SUBNET_GROUP_NAME \
+    --db-subnet-group-description "Subnet group for postgres $DB_IDENTIFIER" \
+    --subnet-ids $subnet1 $subnet2 $subnet3 |
+    jq -r '.DBSubnetGroup.DBSubnetGroupArn')
+  print -P "%F{green}done.%F{$color}"
+
+  tag_rds_resource $SUBNET_GROUP_ARN
+fi
+
+if ! aws ec2 describe-security-groups |
+  jq -e ".SecurityGroups[] | select(.GroupName==\"$SECURITY_GROUP_NAME\")" >/dev/null
+then
+  print -nP "Creating security group the database... "
+  SECURITY_GROUP_ID=$(aws ec2 create-security-group \
+    --group-name $SECURITY_GROUP_NAME \
+    --description "Security group for db instance $DB_IDENTIFIER" \
+    --vpc-id $CLUSTER_VPC |
+    jq -r '.GroupId')
+
+  tag_ec2_resource $SECURITY_GROUP_ID
+
+  silent aws ec2 authorize-security-group-ingress \
+    --group-id $SECURITY_GROUP_ID \
+    --protocol tcp \
+    --port 5432 \
+    --cidr 0.0.0.0/0
+  print -P "%F{green}done.%F{$color}"
+else
+  SECURITY_GROUP_ID=$(aws ec2 describe-security-groups |
+    jq -r ".SecurityGroups[] | select(.GroupName==\"$SECURITY_GROUP_NAME\") | .GroupId")
+fi
+
+print -nP "Spawning the database... "
 output=$(aws rds create-db-instance \
   $VPC \
+  $DB_NAME \
+  --vpc-security-group-ids $SECURITY_GROUP_ID \
+  --db-subnet-group-name $SUBNET_GROUP_NAME \
   --db-instance-identifier $DB_IDENTIFIER \
   --db-instance-class $INSTANCE_CLASS \
   --engine postgres \
   --master-username $MASTER_USERNAME \
   --master-user-password $MASTER_USER_PASSWORD \
+  --no-publicly-accessible \
   --allocated-storage $ALLOCATED_STORAGE)
+print -P "%F{green}done.%F{$color}"
 
+INSTANCE_ARN=$(echo $output | jq -r '.DBInstance.DBInstanceArn')
+
+tag_rds_resource $INSTANCE_ARN
+
+print -nP "Enabling the database secret in vault... "
 if ! vault secrets list | grep -q "^$VAULT_PATH/"; then
-  vault secrets enable -path $VAULT_PATH database
+  silent vault secrets enable -path $VAULT_PATH database
 fi
+print -P "%F{green}done.%F{$color}"
 
+print -nP "Waiting for the database to get an endpoint address... "
 until aws rds describe-db-instances |
-  jq -e ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\") | .Endpoint.Address"; do
+  jq -e ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\") | .Endpoint.Address" >/dev/null
+do
   sleep 10
 done
+print -P "%F{green}done.%F{$color}"
 
 instance=$(aws rds describe-db-instances)
 HOST=$(echo $instance | jq -r ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\") | .Endpoint.Address")
 PORT=$(echo $instance | jq -r ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\") | .Endpoint.Port")
 
-vault write $VAULT_PATH/config/$DB_NAME \
+readonly_role=$DB_IDENTIFIER-readonly
+fullaccess_role=$DB_IDENTIFIER-fullaccess
+
+print -nP "Creating vault roles for this database... "
+silent vault write $VAULT_PATH/roles/$readonly_role \
+    db_name=${DB_NAME[2]} \
+    creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; \
+        GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\";" \
+    default_ttl="1h" \
+    max_ttl="24h"
+
+silent vault write $VAULT_PATH/roles/$fullaccess_role \
+    db_name=${DB_NAME[2]} \
+    creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; \
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"{{name}}\";" \
+    default_ttl="1h" \
+    max_ttl="168h" # one week
+print -P "%F{green}done.%F{$color}"
+
+connection_url="postgresql://{{username}}:{{password}}@$HOST:$PORT/${DB_NAME[2]}"
+print -P "Configuring the vault database record with the following values:"
+print -P "%F{yellow}connection_url%F{$color}=%F{magenta}$connection_url%F{$color}"
+print -P "%F{yellow}username%F{$color}=%F{magenta}$MASTER_USERNAME%F{$color}"
+print -P "%F{yellow}password%F{$color}=%F{magenta}$MASTER_USER_PASSWORD%F{$color}"
+silent vault write $VAULT_PATH/config/${DB_NAME[2]} \
     plugin_name=postgresql-database-plugin \
-    allowed_roles="readonly-$DB_IDENTIFIER,fullaccess-$DB_IDENTIFIER" \
-    connection_url="postgresql://{{username}}:{{password}}@$HOST:$PORT/$DB_NAME" \
+    allowed_roles="$readonly_role,$fullaccess_role" \
+    connection_url="$connection_url" \
     username="$MASTER_USERNAME" \
     password="$MASTER_USER_PASSWORD"
+print -P "%F{green}done.%F{$color}"

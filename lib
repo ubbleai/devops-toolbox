@@ -1,0 +1,16 @@
+#!/bin/zsh
+
+function silent() {
+  # Run a command and print the output only in case of failure
+  cmd=$1
+  shift
+  exit_code=0
+  # We want to capture cmd output and exit code while still having a final
+  # exit code of 0, since with set -e the script would end here otherwise.
+  $cmd "$@" 2>&1 | tee /tmp/out.txt >/dev/null
+  exit_code=${pipestatus[1]}
+  if [ $exit_code -ne 0 ]; then
+    print -P "%F{red}$(cat /tmp/out.txt)%f"
+  fi
+  return $exit_code
+}
