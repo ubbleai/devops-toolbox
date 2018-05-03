@@ -14,8 +14,12 @@ aws s3 cp --recursive $KOPS_STATE_STORE/$CLUSTER/pki/issued/ca /tmp/ca
 
 ca=/tmp/ca/$(ls /tmp/ca | grep -v keyset)
 
+aws s3 cp --recursive $KOPS_STATE_STORE/$CLUSTER/pki/private/ca /tmp/ca
+
+key=/tmp/ca/$(ls /tmp/ca | grep -v keyset | grep ".key$")
+
 if ! vault auth list $TLS_SKIP_VERIFY | grep -q "^kubernetes/$CLUSTER/"; then
-  vault auth enable $TLS_SKIP_VERIFY -path=kubernetes/$CLUSTER kubernetes
+  vault auth enable $TLS_SKIP_VERIFY -path=$VAULT_K8S_PATH kubernetes
 fi
 
 if ! kubectl get sa | grep -q "^$SERVICE_ACCOUNT "; then
@@ -45,9 +49,21 @@ TR_ACCOUNT_TOKEN=$(kubectl -n default get secret ${SECRET_NAME} -o jsonpath='{.d
 
 KUBERNETES_HOST=$(kubectl config view -o json | jq -r ".clusters[] | select(.name==\"$(kubectl config current-context)\" ) | .cluster.server")
 
-vault write $TLS_SKIP_VERIFY auth/kubernetes/$CLUSTER/config \
+vault write $TLS_SKIP_VERIFY auth/$VAULT_K8S_PATH/config \
   kubernetes_host=$KUBERNETES_HOST \
   token_reviewer_jwt=$TR_ACCOUNT_TOKEN \
   kubernetes_ca_cert=@$ca
+
+vault secrets enable $TLS_SKIP_VERIFY -path=$VAULT_K8S_PATH pki
+
+VAULT_HOST=${VAULT_HOST:=$(echo $VAULT_ADDR | sed -E 's#https?://([0-9\.a-z]+).*#\1#')}
+
+vault write $TLS_SKIP_VERIFY $VAULT_K8S_PATH/config/urls \
+  issuing_certificates="https://$VAULT_HOST/v1/$VAULT_K8S_PATH/ca" \
+  crl_distribution_points="https://$VAULT_HOST/v1/$VAULT_K8S_PATH/crl"
+
+cat $ca $key > /tmp/ca/ca.pem
+
+vault write $TLS_SKIP_VERIFY $VAULT_K8S_PATH/config/ca pem_bundle=@/tmp/ca/ca.pem
 
 rm -rf /tmp/ca || true

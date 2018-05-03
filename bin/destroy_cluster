@@ -20,4 +20,4 @@ fi
 kops delete cluster ${CLUSTER_NAME[2]} --yes
 
 # Disable vault k8s backend
-vault auth disable kubernetes/${CLUSTER_NAME[2]}
+vault auth disable $VAULT_K8S_PATH

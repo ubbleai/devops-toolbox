@@ -2,25 +2,17 @@
 
 set -e
 
-zparseopts tls-skip-verify=TLS_SKIP_VERIFY path=HAS_PATH
+zparseopts tls-skip-verify=TLS_SKIP_VERIFY
 
 CLUSTER=$(kubectl config current-context)
-
-if [[ "$HAS_PATH" != "" ]]; then
-  VAULT_PATH=aws/$CLUSTER
-  PATH_PARAM="-path=$VAULT_PATH"
-else
-  VAULT_PATH=aws
-  PATH_PARAM="-path=aws"
-fi
 
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --output text --query 'Account')
 
 VAULT_USER="vault-$CLUSTER"
 
-if ! vault secrets list | grep -q "^$VAULT_PATH/ "
+if ! vault secrets list | grep -q "^$VAULT_AWS_PATH/ "
 then
-  vault secrets enable $TLS_SKIP_VERIFY $PATH_PARAM aws
+  vault secrets enable $TLS_SKIP_VERIFY -path=$VAULT_AWS_PATH aws
 fi
 
 aws iam list-users | grep -q "\"$VAULT_USER\"" || \
@@ -82,7 +74,7 @@ ACCESS_KEY=$(aws iam create-access-key --user-name $VAULT_USER)
 AWS_ACCESS_KEY_ID=$(echo $ACCESS_KEY | jq -r '.AccessKey.AccessKeyId')
 AWS_SECRET_ACCESS_KEY=$(echo $ACCESS_KEY | jq -r '.AccessKey.SecretAccessKey')
 
-vault write $TLS_SKIP_VERIFY $VAULT_PATH/config/root \
+vault write $TLS_SKIP_VERIFY $VAULT_AWS_PATH/config/root \
   access_key=$AWS_ACCESS_KEY_ID \
   secret_key=$AWS_SECRET_ACCESS_KEY \
   region=$AWS_DEFAULT_REGION
