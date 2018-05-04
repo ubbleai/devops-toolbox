@@ -22,7 +22,7 @@ print -P "%F{green}done.%F{$color}"
 
 print -nP "Destroying database %F{yellow}$DB_IDENTIFIER%F{$color}... "
 aws rds describe-db-instances |
-  jq -e ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\" and .DBInstanceStatus==\"available\")" && \
+  jq -e ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\" and .DBInstanceStatus==\"available\")" >/dev/null && \
   silent aws rds delete-db-instance \
     --db-instance-identifier $DB_IDENTIFIER \
     --final-db-snapshot-identifier $FINAL_SNAPSHOT
