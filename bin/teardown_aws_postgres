@@ -12,12 +12,13 @@ zparseopts -db-name:=DB_NAME
 
 DB_IDENTIFIER="$ENV-${DB_NAME[2]}"
 FINAL_SNAPSHOT="$DB_IDENTIFIER-final-shot-$(date '+%Y-%m-%dT%H%M%S')"
-VAULT_PATH="database/$CLUSTER_NAME"
+VAULT_PATH=${VAULT_POSTGRES_PATH:="database/$CLUSTER_NAME"}
 SECURITY_GROUP_NAME="security-group-$DB_IDENTIFIER"
 SUBNET_GROUP_NAME="subnet-group-$DB_IDENTIFIER"
 
 print -nP "Disabling the database secret in vault... "
-silent vault secrets disable $VAULT_PATH
+vault secrets list | grep -q "^$VAULT_PATH/" &&
+  silent vault secrets disable $VAULT_PATH
 print -P "%F{green}done.%F{$color}"
 
 print -nP "Destroying database %F{yellow}$DB_IDENTIFIER%F{$color}... "

@@ -33,7 +33,7 @@ for i in range(0, 32):
 }
 
 DB_IDENTIFIER="$ENV-${DB_NAME[2]}"
-VAULT_PATH="database/$CLUSTER_NAME"
+VAULT_PATH=${VAULT_POSTGRES_PATH:="database/$CLUSTER_NAME"}
 INSTANCE_CLASS=${INSTANCE_CLASS:=db.m4.large}
 MASTER_USERNAME=${MASTER_USERNAME:=root}
 DEFAULT_PASSWORD=$(cat /dev/urandom | base64 | tr -dc '0-9a-zA-Z' | head -c30) # mac / zsh
@@ -55,7 +55,7 @@ function tag_rds_resource() {
 }
 
 if aws rds describe-db-instances |
-  jq -e ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\")"; then
+  jq -e ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\")" >/dev/null; then
   # Since we can't retrieve the master password, if the db already exists we
   # should exit.
   exit 0

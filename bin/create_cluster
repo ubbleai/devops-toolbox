@@ -84,12 +84,8 @@ if [[ "$WAIT" != "--wait" && "$VAULT" != "--vault" ]]; then
   exit 0
 fi
 
-while true
+while ! kops validate cluster 2>&1 >/dev/null
 do
-  kops validate cluster 2>&1 >/dev/null
-  if [ $? -eq 0 ]; then
-    break
-  fi
   sleep 5
 done
 
