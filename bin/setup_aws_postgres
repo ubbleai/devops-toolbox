@@ -8,11 +8,11 @@ color=blue
 
 source $SCRIPTPATH/../lib
 
-zparseopts -db-name:=DB_NAME
-
 function create_subnet_in_vpc_in_az() {
   vpc=$1
   az=$2
+
+  # We need to find an available cidr
   cidr=$(aws ec2 describe-subnets |
     jq -r ".Subnets[] | select(.VpcId==\"$vpc\") | .CidrBlock" |
     python -c "import sys
@@ -32,7 +32,7 @@ for i in range(0, 32):
     jq -r '.Subnet.SubnetId'
 }
 
-DB_IDENTIFIER="$ENV-${DB_NAME[2]}"
+DB_IDENTIFIER="$ENV-${DB_NAME}"
 VAULT_PATH=${VAULT_POSTGRES_PATH:="database/$CLUSTER_NAME"}
 INSTANCE_CLASS=${INSTANCE_CLASS:=db.m4.large}
 MASTER_USERNAME=${MASTER_USERNAME:=root}
@@ -120,7 +120,7 @@ fi
 print -nP "Spawning the database... "
 output=$(aws rds create-db-instance \
   $VPC \
-  $DB_NAME \
+  --db-name $DB_NAME \
   --vpc-security-group-ids $SECURITY_GROUP_ID \
   --db-subnet-group-name $SUBNET_GROUP_NAME \
   --db-instance-identifier $DB_IDENTIFIER \
@@ -154,31 +154,29 @@ instance=$(aws rds describe-db-instances)
 HOST=$(echo $instance | jq -r ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\") | .Endpoint.Address")
 PORT=$(echo $instance | jq -r ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\") | .Endpoint.Port")
 
-readonly_role=$DB_IDENTIFIER-readonly
-fullaccess_role=$DB_IDENTIFIER-fullaccess
 
 print -nP "Creating vault roles for this database... "
 silent vault write $VAULT_PATH/roles/$readonly_role \
-    db_name=${DB_NAME[2]} \
+    db_name=${DB_NAME} \
     creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; \
         GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\";" \
     default_ttl="1h" \
     max_ttl="24h"
 
 silent vault write $VAULT_PATH/roles/$fullaccess_role \
-    db_name=${DB_NAME[2]} \
+    db_name=${DB_NAME} \
     creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; \
         GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"{{name}}\";" \
     default_ttl="1h" \
     max_ttl="168h" # one week
 print -P "%F{green}done.%F{$color}"
 
-connection_url="postgresql://{{username}}:{{password}}@$HOST:$PORT/${DB_NAME[2]}"
+connection_url="postgresql://{{username}}:{{password}}@$HOST:$PORT/${DB_NAME}"
 print -P "Configuring the vault database record with the following values:"
 print -P "%F{yellow}connection_url%F{$color}=%F{magenta}$connection_url%F{$color}"
 print -P "%F{yellow}username%F{$color}=%F{magenta}$MASTER_USERNAME%F{$color}"
 print -P "%F{yellow}password%F{$color}=%F{magenta}$MASTER_USER_PASSWORD%F{$color}"
-silent vault write $VAULT_PATH/config/${DB_NAME[2]} \
+silent vault write $VAULT_PATH/config/${DB_NAME} \
     plugin_name=postgresql-database-plugin \
     allowed_roles="$readonly_role,$fullaccess_role" \
     connection_url="$connection_url" \
