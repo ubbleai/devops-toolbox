@@ -185,3 +185,7 @@ silent vault write $VAULT_PATH/config/${DB_NAME[2]} \
     username="$MASTER_USERNAME" \
     password="$MASTER_USER_PASSWORD"
 print -P "%F{green}done.%F{$color}"
+
+print -nP "Storing postgres host into vault... "
+silent vault write $VAULT_CLUSTER_PATH/postgres host=$HOST
+print -P "%F{green}done.%F{$color}"
