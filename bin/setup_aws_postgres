@@ -156,14 +156,14 @@ PORT=$(echo $instance | jq -r ".DBInstances[] | select(.DBInstanceIdentifier==\"
 
 
 print -nP "Creating vault roles for this database... "
-silent vault write $VAULT_PATH/roles/$readonly_role \
+silent vault write $VAULT_PATH/roles/$VAULT_POSTGRES_READONLY_ROLE \
     db_name=${DB_NAME} \
     creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; \
         GRANT SELECT ON ALL TABLES IN SCHEMA public TO \"{{name}}\";" \
     default_ttl="1h" \
     max_ttl="24h"
 
-silent vault write $VAULT_PATH/roles/$fullaccess_role \
+silent vault write $VAULT_PATH/roles/$VAULT_POSTGRES_FULLACCESS_ROLE \
     db_name=${DB_NAME} \
     creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; \
         GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"{{name}}\";" \
@@ -178,7 +178,7 @@ print -P "%F{yellow}username%F{$color}=%F{magenta}$MASTER_USERNAME%F{$color}"
 print -P "%F{yellow}password%F{$color}=%F{magenta}$MASTER_USER_PASSWORD%F{$color}"
 silent vault write $VAULT_PATH/config/${DB_NAME} \
     plugin_name=postgresql-database-plugin \
-    allowed_roles="$readonly_role,$fullaccess_role" \
+    allowed_roles="$VAULT_POSTGRES_READONLY_ROLE,$VAULT_POSTGRES_FULLACCESS_ROLE" \
     connection_url="$connection_url" \
     username="$MASTER_USERNAME" \
     password="$MASTER_USER_PASSWORD"
