@@ -166,7 +166,8 @@ silent vault write $VAULT_PATH/roles/$VAULT_POSTGRES_READONLY_ROLE \
 silent vault write $VAULT_PATH/roles/$VAULT_POSTGRES_FULLACCESS_ROLE \
     db_name=${DB_NAME} \
     creation_statements="CREATE ROLE \"{{name}}\" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}'; \
-        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"{{name}}\";" \
+        GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"{{name}}\"; \
+        GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO \"{{name}}\";" \
     default_ttl="1h" \
     max_ttl="168h" # one week
 print -P "%F{green}done.%F{$color}"
@@ -185,5 +186,8 @@ silent vault write $VAULT_PATH/config/${DB_NAME} \
 print -P "%F{green}done.%F{$color}"
 
 print -nP "Storing postgres host into vault... "
-silent vault write $VAULT_CLUSTER_PATH/postgres host=$HOST
+silent vault write $VAULT_CLUSTER_PATH/postgres \
+  host=$HOST \
+  username=$MASTER_USERNAME \
+  password=$MASTER_USER_PASSWORD
 print -P "%F{green}done.%F{$color}"
