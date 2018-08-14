@@ -16,11 +16,6 @@ VAULT_PATH=${VAULT_POSTGRES_PATH:="database/$CLUSTER_NAME"}
 SECURITY_GROUP_NAME="security-group-$DB_IDENTIFIER"
 SUBNET_GROUP_NAME="subnet-group-$DB_IDENTIFIER"
 
-print -nP "Disabling the database secret in vault... "
-vault secrets list | grep -q "^$VAULT_PATH/" &&
-  silent vault secrets disable $VAULT_PATH
-print -P "%F{green}done.%F{$color}"
-
 print -nP "Destroying database %F{yellow}$DB_IDENTIFIER%F{$color}... "
 aws rds describe-db-instances |
   jq -e ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\" and .DBInstanceStatus==\"available\")" >/dev/null && \
@@ -53,3 +48,9 @@ aws ec2 describe-subnets --filters "Name=tag:DbIdentifier,Values=$DB_IDENTIFIER"
   jq -r '.DBSubnetGroups[].SubnetId' |
   xargs aws ec2 delete-subnet --subnet
 print -P "%F{green}done.%F{$color}"
+
+# print -nP "Disabling the database secret in vault... "
+# vault secrets list | grep -q "^$VAULT_PATH/" &&
+#   # silent vault revoke -force -prefix $VAULT_PATH &&
+#   silent vault secrets disable $VAULT_PATH
+# print -P "%F{green}done.%F{$color}"
