@@ -136,12 +136,6 @@ INSTANCE_ARN=$(echo $output | jq -r '.DBInstance.DBInstanceArn')
 
 tag_rds_resource $INSTANCE_ARN
 
-print -nP "Enabling the database secret in vault... "
-if ! vault secrets list | grep -q "^$VAULT_PATH/"; then
-  silent vault secrets enable -path $VAULT_PATH database
-fi
-print -P "%F{green}done.%F{$color}"
-
 print -nP "Waiting for the database to get an endpoint address... "
 until aws rds describe-db-instances |
   jq -e ".DBInstances[] | select(.DBInstanceIdentifier==\"$DB_IDENTIFIER\") | .Endpoint.Address" >/dev/null
@@ -158,7 +152,13 @@ PORT=$(echo $instance | jq -r ".DBInstances[] | select(.DBInstanceIdentifier==\"
 # The following lines are disabled because of a problem vault <> aws rds
 # We use a simpler (yet still secure) way by just storing credentials into
 # plain secret
-
+# 
+# print -nP "Enabling the database secret in vault... "
+# if ! vault secrets list | grep -q "^$VAULT_PATH/"; then
+#   silent vault secrets enable -path $VAULT_PATH database
+# fi
+# print -P "%F{green}done.%F{$color}"
+# 
 # print -nP "Creating vault roles for this database... "
 # silent vault write $VAULT_PATH/roles/$VAULT_POSTGRES_READONLY_ROLE \
 #     db_name=${DB_NAME} \
@@ -189,7 +189,7 @@ PORT=$(echo $instance | jq -r ".DBInstances[] | select(.DBInstanceIdentifier==\"
 #     password="$MASTER_USER_PASSWORD"
 # print -P "%F{green}done.%F{$color}"
 
-print -nP "Storing postgres host into vault... "
+print -nP "Storing postgres host and credentials into vault... "
 silent vault write $VAULT_CLUSTER_PATH/postgres \
   host=$HOST \
   username=$MASTER_USERNAME \

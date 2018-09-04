@@ -54,3 +54,7 @@ print -P "%F{green}done.%F{$color}"
 #   # silent vault revoke -force -prefix $VAULT_PATH &&
 #   silent vault secrets disable $VAULT_PATH
 # print -P "%F{green}done.%F{$color}"
+
+print -nP "Deleting postgres data from vault... "
+silent vault delete $VAULT_CLUSTER_PATH/postgres
+print -P "%F{green}done.%F{$color}"
