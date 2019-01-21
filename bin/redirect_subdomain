@@ -6,7 +6,7 @@ function redirect_subdomain() {
 
   jq_search=".ResourceRecordSets[] | "
   jq_search+="select("
-  jq_search+="(.Name==\"$subdomain\") and (.Type==\"CNAME\"))"
+  jq_search+="(.Name==\"$subdomain.\") and (.Type==\"CNAME\")) | .ResourceRecords[0].Value"
 
   previous_record=$(aws route53 \
     list-resource-record-sets \
