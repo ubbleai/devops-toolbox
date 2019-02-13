@@ -71,6 +71,7 @@ for i in range(0,256):
     break")
 
 kops create cluster \
+  --kubernetes-version "1.13.3" \
   --zones $ZONES \
   --cloud aws \
   --node-count $NODE_COUNT \
